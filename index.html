@@ -98,8 +98,8 @@ td{padding:.58rem .9rem;border-top:1px solid var(--border)}
 
   <div class="filter-bar">
     <input type="text" id="searchInput" placeholder="🔍 Cari brand/model/deskripsi..." oninput="filterAndRender()"/>
-    <select id="brandFilter" onchange="onFilterChange()"><option value="">Semua Brand</option></select>
-    <select id="catFilter" onchange="onFilterChange()"><option value="">Semua Kategori</option></select>
+    <select id="brandFilter" onchange="onBrandChange()"><option value="">Semua Brand</option></select>
+    <select id="catFilter" onchange="onCatChange()"><option value="">Semua Kategori</option></select>
   </div>
 
   <div class="stats-bar">
@@ -148,17 +148,14 @@ async function fetchDataAndRefresh() {
     const csvText = await response.text();
     document.getElementById("loadingStatus").innerText = "Memproses data...";
     
-    // Parse CSV ke array of objects menggunakan SheetJS
     const workbook = XLSX.read(csvText, { type: "string" });
     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: "" });
     
     if (!rows || rows.length === 0) throw new Error("Tidak ada data dalam CSV");
     
-    // Proses data mentah menjadi struktur yang dibutuhkan dashboard
     masterData = processRawData(rows);
     
-    // Simpan ke localStorage (opsional, untuk offline cache)
     localStorage.setItem("vmd_cached_data", JSON.stringify(masterData));
     localStorage.setItem("vmd_last_update", new Date().toISOString());
     
@@ -172,20 +169,17 @@ async function fetchDataAndRefresh() {
 // ============================================================
 // PROSES DATA: Clone dari logika Claude
 // ============================================================
-function processRawData(rows) {
-  // Helper ambil nilai kolom (case insensitive)
-  function getValue(row, ...possibleNames) {
-    for (const name of possibleNames) {
-      const key = Object.keys(row).find(k => k.toLowerCase() === name.toLowerCase());
-      if (key && row[key] !== undefined) return String(row[key]).trim();
-    }
-    return "";
+function getValue(row, ...possibleNames) {
+  for (const name of possibleNames) {
+    const key = Object.keys(row).find(k => k.toLowerCase() === name.toLowerCase());
+    if (key && row[key] !== undefined) return String(row[key]).trim();
   }
-  
-  // Filter out "Not Sale"
+  return "";
+}
+
+function processRawData(rows) {
   const validRows = rows.filter(r => getValue(r, "status unit", "statusunit", "status").toLowerCase() !== "not sale");
   
-  // Kelompokkan berdasarkan branch
   const byBranch = {};
   for (const row of validRows) {
     const branch = getValue(row, "branch", "cabang", "store");
@@ -194,7 +188,6 @@ function processRawData(rows) {
     byBranch[branch].push(row);
   }
   
-  // Data Head Office (untuk rekomendasi)
   const hoRows = byBranch["HEAD OFFICE"] || [];
   const hoByModel = {};
   for (const row of hoRows) {
@@ -206,11 +199,9 @@ function processRawData(rows) {
   
   const result = {};
   
-  // Proses setiap branch (kecuali HEAD OFFICE)
   for (const [branch, branchRows] of Object.entries(byBranch)) {
     if (branch.toUpperCase() === "HEAD OFFICE") continue;
     
-    // Kelompokkan berdasarkan model di branch ini
     const itemsByModel = {};
     for (const row of branchRows) {
       const model = getValue(row, "model");
@@ -244,7 +235,6 @@ function processRawData(rows) {
       });
     }
     
-    // Cari item HO yang tidak ada di branch ini
     const modelsInBranch = new Set(Object.keys(itemsByModel));
     const hoItems = [];
     for (const [model, hoRows] of Object.entries(hoByModel)) {
@@ -298,7 +288,6 @@ function showSplashScreen() {
     grid.appendChild(btn);
   }
   
-  // Tampilkan waktu update terakhir
   const lastUpdate = localStorage.getItem("vmd_last_update");
   if (lastUpdate) {
     const date = new Date(lastUpdate);
@@ -311,15 +300,23 @@ function showSplashScreen() {
 }
 
 // ============================================================
-// LOAD TOKO & RENDER DASHBOARD
+// LOAD TOKO & DASHBOARD DENGAN FILTER DINAMIS
 // ============================================================
 function loadStore(storeName) {
   currentStore = storeName;
   document.getElementById("storeName").innerText = storeName;
   showDisp = true; showNoDisp = true; showHo = true;
   updateToggleButtons();
-  buildFilters();
+  
+  // Reset filter values
+  document.getElementById("brandFilter").value = "";
+  document.getElementById("catFilter").value = "";
+  document.getElementById("searchInput").value = "";
+  
+  // Build dynamic filters based on ALL data (before filtering)
+  rebuildFilters("", "");
   filterAndRender();
+  
   document.getElementById("screenSplash").classList.remove("active");
   document.getElementById("screenApp").classList.add("active");
 }
@@ -330,38 +327,73 @@ function goBack() {
   document.getElementById("screenSplash").classList.add("active");
 }
 
-function buildFilters() {
+// ============================================================
+// FILTER DINAMIS YANG SALING MEMPENGARUHI
+// ============================================================
+function rebuildFilters(selectedBrand, selectedCat) {
+  if (!currentStore || !masterData) return;
+  
   const data = masterData[currentStore];
   const allItems = [...data.items, ...data.ho_items];
-  const uniqueBrands = [...new Set(allItems.map(i => i.brand).filter(Boolean))].sort();
-  const uniqueCats = [...new Set(allItems.map(i => i.cat).filter(c => c && c !== "-" && c !== "0"))].sort();
   
+  // Get ALL possible brands and categories from the data
+  const allBrands = [...new Set(allItems.map(i => i.brand).filter(Boolean))].sort();
+  const allCats = [...new Set(allItems.map(i => i.cat).filter(c => c && c !== "-" && c !== "0"))].sort();
+  
+  // Filter brands based on selected category (if any)
+  let availableBrands = allBrands;
+  let availableCats = allCats;
+  
+  if (selectedCat) {
+    // Only show brands that have items in the selected category
+    const brandsWithCat = new Set(
+      allItems.filter(i => i.cat === selectedCat).map(i => i.brand)
+    );
+    availableBrands = allBrands.filter(b => brandsWithCat.has(b));
+  }
+  
+  if (selectedBrand) {
+    // Only show categories that have items from the selected brand
+    const catsWithBrand = new Set(
+      allItems.filter(i => i.brand === selectedBrand).map(i => i.cat)
+    );
+    availableCats = allCats.filter(c => catsWithBrand.has(c));
+  }
+  
+  // Update brand dropdown
   const brandSelect = document.getElementById("brandFilter");
-  const catSelect = document.getElementById("catFilter");
-  
-  const currentBrand = brandSelect.value;
-  const currentCat = catSelect.value;
-  
   brandSelect.innerHTML = '<option value="">Semua Brand</option>';
-  uniqueBrands.forEach(b => {
-    const opt = document.createElement("option");
-    opt.value = b;
-    opt.textContent = b;
-    if (b === currentBrand) opt.selected = true;
-    brandSelect.appendChild(opt);
-  });
+  for (const brand of availableBrands) {
+    const option = document.createElement("option");
+    option.value = brand;
+    option.textContent = brand;
+    if (brand === selectedBrand) option.selected = true;
+    brandSelect.appendChild(option);
+  }
   
+  // Update category dropdown
+  const catSelect = document.getElementById("catFilter");
   catSelect.innerHTML = '<option value="">Semua Kategori</option>';
-  uniqueCats.forEach(c => {
-    const opt = document.createElement("option");
-    opt.value = c;
-    opt.textContent = c;
-    if (c === currentCat) opt.selected = true;
-    catSelect.appendChild(opt);
-  });
+  for (const cat of availableCats) {
+    const option = document.createElement("option");
+    option.value = cat;
+    option.textContent = cat;
+    if (cat === selectedCat) option.selected = true;
+    catSelect.appendChild(option);
+  }
 }
 
-function onFilterChange() {
+function onBrandChange() {
+  const selectedBrand = document.getElementById("brandFilter").value;
+  const selectedCat = document.getElementById("catFilter").value;
+  rebuildFilters(selectedBrand, selectedCat);
+  filterAndRender();
+}
+
+function onCatChange() {
+  const selectedBrand = document.getElementById("brandFilter").value;
+  const selectedCat = document.getElementById("catFilter").value;
+  rebuildFilters(selectedBrand, selectedCat);
   filterAndRender();
 }
 
@@ -395,48 +427,63 @@ function filterAndRender() {
   document.getElementById("cntNodisp").innerText = nodisp.length;
   document.getElementById("cntHo").innerText = filteredHo.length;
   
-  // Render Display
-  document.getElementById("tbodyDisp").innerHTML = disp.map(i => `
-    <tr>
-      <td class="td-brand">${i.brand}</td>
-      <td class="td-model">${i.model}</td>
-      <td>${i.desc}</td>
-      <td>${i.category}</td>
-      <td style="color:var(--display-color); font-weight:600; text-align:center">${i.display_count}</td>
-      <td style="text-align:center">${i.stock_count}</td>
-      <td>${(i.display_locations || []).map(l => `<span class="loc-tag disp-tag">${l}</span>`).join('')}</td>
-      <td>${(i.stock_locations || []).map(l => `<span class="loc-tag">${l}</span>`).join('')}</td>
-    </tr>
-  `).join('');
+  // Render Display section
+  document.getElementById("tbodyDisp").innerHTML = disp.length === 0 ? 
+    `<tr><td colspan="8"><div class="empty-state">Tidak ada item yang ditampilkan</div></td></tr>` :
+    disp.map(i => `
+      <tr>
+        <td class="td-brand">${escapeHtml(i.brand)}</td>
+        <td class="td-model">${escapeHtml(i.model)}</td>
+        <td>${escapeHtml(i.desc)}</td>
+        <td>${escapeHtml(i.category)}</td>
+        <td style="color:var(--display-color); font-weight:600; text-align:center">${i.display_count}</td>
+        <td style="text-align:center">${i.stock_count}</td>
+        <td>${(i.display_locations || []).map(l => `<span class="loc-tag disp-tag">${escapeHtml(l)}</span>`).join('')}</td>
+        <td>${(i.stock_locations || []).map(l => `<span class="loc-tag">${escapeHtml(l)}</span>`).join('')}</td>
+      </tr>
+    `).join('');
   
-  // Render Belum Display
-  document.getElementById("tbodyNodisp").innerHTML = nodisp.map(i => `
-    <tr>
-      <td class="td-brand">${i.brand}</td>
-      <td class="td-model">${i.model}</td>
-      <td>${i.desc}</td>
-      <td>${i.category}</td>
-      <td style="text-align:center">${i.stock_count}</td>
-      <td>${(i.stock_locations || []).map(l => `<span class="loc-tag">${l}</span>`).join('')}</td>
-    </tr>
-  `).join('');
+  // Render Non-Display section
+  document.getElementById("tbodyNodisp").innerHTML = nodisp.length === 0 ?
+    `<tr><td colspan="6"><div class="empty-state">Tidak ada item yang belum display</div></td></tr>` :
+    nodisp.map(i => `
+      <tr>
+        <td class="td-brand">${escapeHtml(i.brand)}</td>
+        <td class="td-model">${escapeHtml(i.model)}</td>
+        <td>${escapeHtml(i.desc)}</td>
+        <td>${escapeHtml(i.category)}</td>
+        <td style="text-align:center">${i.stock_count}</td>
+        <td>${(i.stock_locations || []).map(l => `<span class="loc-tag">${escapeHtml(l)}</span>`).join('')}</td>
+      </tr>
+    `).join('');
   
-  // Render Head Office
-  document.getElementById("tbodyHo").innerHTML = filteredHo.map(i => `
-    <tr>
-      <td class="td-brand">${i.brand}</td>
-      <td class="td-model">${i.model}</td>
-      <td>${i.desc}</td>
-      <td>${i.category}</td>
-      <td style="color:var(--ho-color); font-weight:600; text-align:center">${i.ho_count}</td>
-      <td>${(i.ho_locations || []).map(l => `<span class="loc-tag ho-tag">${l}</span>`).join('')}</td>
-    </tr>
-  `).join('');
+  // Render HO section
+  document.getElementById("tbodyHo").innerHTML = filteredHo.length === 0 ?
+    `<tr><td colspan="6"><div class="empty-state">Semua item HO sudah ada di toko ini</div></td></tr>` :
+    filteredHo.map(i => `
+      <tr>
+        <td class="td-brand">${escapeHtml(i.brand)}</td>
+        <td class="td-model">${escapeHtml(i.model)}</td>
+        <td>${escapeHtml(i.desc)}</td>
+        <td>${escapeHtml(i.category)}</td>
+        <td style="color:var(--ho-color); font-weight:600; text-align:center">${i.ho_count}</td>
+        <td>${(i.ho_locations || []).map(l => `<span class="loc-tag ho-tag">${escapeHtml(l)}</span>`).join('')}</td>
+      </tr>
+    `).join('');
   
-  // Tampilkan/sembunyikan section sesuai toggle
   document.getElementById("sectionDisp").style.display = showDisp ? "block" : "none";
   document.getElementById("sectionNodisp").style.display = showNoDisp ? "block" : "none";
   document.getElementById("sectionHo").style.display = showHo ? "block" : "none";
+}
+
+function escapeHtml(str) {
+  if (!str) return "";
+  return str.replace(/[&<>]/g, function(m) {
+    if (m === '&') return '&amp;';
+    if (m === '<') return '&lt;';
+    if (m === '>') return '&gt;';
+    return m;
+  });
 }
 
 function toggleSection(section) {
@@ -452,7 +499,7 @@ function updateToggleButtons() {
 }
 
 // ============================================================
-// MULAI: Coba ambil dari cache dulu, lalu fetch baru
+// MULAI
 // ============================================================
 async function start() {
   const cached = localStorage.getItem("vmd_cached_data");
