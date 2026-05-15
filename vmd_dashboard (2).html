@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>VMD Stock Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f7f8fc;--bg2:#ffffff;--surface:#ffffff;--surface2:#f0f2f8;
+  --border:#e2e6f0;--border2:#d0d5e8;--text:#1a1d2e;--text2:#5a6080;--text3:#a0a8c0;
+  --accent:#7b9cff;--accent-bg:#eef2ff;--accent-dark:#5a7de0;
+  --display-color:#2ea86b;--display-bg:#edfaf4;--display-border:#b8ecd4;
+  --nodisp-color:#e05c7a;--nodisp-bg:#fff0f3;--nodisp-border:#f5c0cc;
+  --ho-color:#d4860a;--ho-bg:#fff8ec;--ho-border:#f5dfa0;
+  --radius:12px;--radius-sm:8px;
+  --shadow:0 1px 3px rgba(0,0,0,.06),0 4px 16px rgba(0,0,0,.04);
+  --shadow-md:0 4px 24px rgba(0,0,0,.09);
+}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;min-height:100vh;overflow-x:hidden;font-size:14px}
+
+/* ── SCREENS ── */
+.screen{display:none;min-height:100vh}
+.screen.active{display:flex;flex-direction:column}
+
+/* ── LOADING SCREEN ── */
+#screenLoading{align-items:center;justify-content:center;gap:1rem;flex-direction:column}
+.spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{color:var(--text2);font-size:.9rem}
+
+/* ── SETUP SCREEN (first time / admin) ── */
+#screenSetup{align-items:center;justify-content:center;padding:2rem}
+.setup-card{
+  background:var(--surface);border:1.5px solid var(--border);border-radius:20px;
+  box-shadow:var(--shadow-md);padding:2.5rem 2.2rem;max-width:500px;width:100%;
+}
+.setup-logo{font-size:2rem;margin-bottom:.75rem;text-align:center}
+.setup-title{font-size:1.6rem;font-weight:700;letter-spacing:-.03em;margin-bottom:.3rem;text-align:center}
+.setup-title span{color:var(--accent)}
+.setup-sub{color:var(--text2);font-size:.85rem;text-align:center;margin-bottom:1.75rem;line-height:1.6}
+
+/* step indicator */
+.steps{display:flex;gap:0;margin-bottom:1.75rem;position:relative}
+.steps::before{content:'';position:absolute;top:14px;left:14px;right:14px;height:2px;background:var(--border);z-index:0}
+.step{flex:1;display:flex;flex-direction:column;align-items:center;gap:.4rem;position:relative;z-index:1}
+.step-dot{width:28px;height:28px;border-radius:50%;border:2px solid var(--border);background:var(--surface);
+  display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:var(--text3);transition:all .3s}
+.step.done .step-dot{background:var(--accent);border-color:var(--accent);color:#fff}
+.step.active .step-dot{border-color:var(--accent);color:var(--accent)}
+.step-lbl{font-size:.68rem;color:var(--text3);text-align:center;line-height:1.3}
+.step.active .step-lbl,.step.done .step-lbl{color:var(--text2)}
+
+/* form fields */
+.field{margin-bottom:1.1rem}
+.field label{display:block;font-size:.8rem;font-weight:600;margin-bottom:.4rem;color:var(--text2)}
+.field input,.field select{
+  width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius-sm);
+  color:var(--text);padding:.55rem .9rem;font-family:'Plus Jakarta Sans',sans-serif;font-size:.85rem;
+  outline:none;transition:border-color .2s;
+}
+.field input:focus,.field select:focus{border-color:var(--accent)}
+.field .hint{font-size:.72rem;color:var(--text3);margin-top:.35rem;line-height:1.5}
+.field .hint a{color:var(--accent);text-decoration:none}
+.field .hint a:hover{text-decoration:underline}
+
+/* upload zone */
+.upload-zone{
+  border:2px dashed var(--border2);border-radius:var(--radius);padding:1.75rem;cursor:pointer;
+  transition:all .2s;background:var(--bg);text-align:center;margin-bottom:.75rem;
+}
+.upload-zone:hover,.upload-zone.drag-over{border-color:var(--accent);background:var(--accent-bg)}
+.upload-zone .uz-icon{font-size:1.75rem;margin-bottom:.5rem}
+.upload-zone .uz-text{font-weight:600;font-size:.9rem;margin-bottom:.2rem}
+.upload-zone .uz-sub{font-size:.75rem;color:var(--text2)}
+.upload-zone.has-file{border-color:var(--display-color);background:var(--display-bg)}
+.upload-zone.has-file .uz-icon::before{content:'✓ '}
+
+/* buttons */
+.btn{
+  width:100%;padding:.65rem 1.2rem;border-radius:var(--radius-sm);font-family:'Plus Jakarta Sans',sans-serif;
+  font-size:.88rem;font-weight:600;cursor:pointer;transition:all .2s;border:none;
+}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent-dark)}
+.btn-primary:disabled{background:var(--border2);color:var(--text3);cursor:not-allowed}
+.btn-ghost{background:none;border:1.5px solid var(--border);color:var(--text2);width:auto;padding:.45rem 1rem;font-size:.8rem}
+.btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+.btn-danger{background:none;border:1.5px solid var(--nodisp-border);color:var(--nodisp-color);width:auto;padding:.4rem 1rem;font-size:.78rem}
+.btn-danger:hover{background:var(--nodisp-bg)}
+
+/* progress */
+.progress-wrap{margin-top:.9rem;display:none}
+.progress-lbl{font-size:.78rem;color:var(--text2);margin-bottom:.4rem}
+.progress-bar{height:5px;background:var(--border);border-radius:3px;overflow:hidden}
+.progress-fill{height:100%;background:var(--accent);width:0%;transition:width .25s;border-radius:3px}
+.msg-error{color:var(--nodisp-color);font-size:.8rem;margin-top:.65rem;display:none;line-height:1.5}
+.msg-success{color:var(--display-color);font-size:.8rem;margin-top:.65rem;display:none;line-height:1.5}
+
+/* data info bar */
+.data-info{
+  background:var(--display-bg);border:1px solid var(--display-border);border-radius:var(--radius-sm);
+  padding:.65rem 1rem;font-size:.8rem;color:var(--display-color);margin-bottom:1rem;
+  display:flex;align-items:center;gap:.5rem;
+}
+.data-info-stale{background:var(--ho-bg);border-color:var(--ho-border);color:var(--ho-color)}
+
+/* ── SPLASH ── */
+#screenSplash{align-items:center;justify-content:center;padding:2rem;flex-direction:column;gap:0}
+.splash-header{text-align:center;margin-bottom:1.75rem}
+.splash-title{font-size:clamp(1.5rem,5vw,2.2rem);font-weight:700;letter-spacing:-.03em;margin-bottom:.3rem}
+.splash-title span{color:var(--accent)}
+.splash-meta{font-size:.78rem;color:var(--text3);margin-top:.2rem}
+.store-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.85rem;width:100%;max-width:780px;margin-bottom:1.25rem}
+.store-btn{
+  background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);
+  padding:1.25rem 1.2rem;cursor:pointer;text-align:left;transition:all .2s;
+  box-shadow:var(--shadow);font-family:'Plus Jakarta Sans',sans-serif;
+}
+.store-btn:hover{border-color:var(--accent);box-shadow:var(--shadow-md);transform:translateY(-2px)}
+.store-btn-name{font-weight:700;font-size:.92rem;margin-bottom:.55rem;color:var(--text)}
+.store-pills{display:flex;flex-wrap:wrap;gap:.3rem}
+.store-pill{font-size:.68rem;padding:.18rem .55rem;border-radius:20px;font-weight:500}
+.pill-disp{background:var(--display-bg);color:var(--display-color);border:1px solid var(--display-border)}
+.pill-nodisp{background:var(--nodisp-bg);color:var(--nodisp-color);border:1px solid var(--nodisp-border)}
+.pill-ho{background:var(--ho-bg);color:var(--ho-color);border:1px solid var(--ho-border)}
+.splash-actions{display:flex;gap:.65rem;flex-wrap:wrap;justify-content:center}
+
+/* ── MAIN APP ── */
+#screenApp{flex-direction:column}
+.topbar{
+  position:sticky;top:0;z-index:100;background:rgba(247,248,252,.94);
+  backdrop-filter:blur(14px);border-bottom:1px solid var(--border);
+  padding:.7rem 1.2rem;display:flex;align-items:center;gap:.85rem;flex-wrap:wrap;
+}
+.back-btn{
+  background:none;border:1.5px solid var(--border);border-radius:var(--radius-sm);
+  color:var(--text2);padding:.38rem .8rem;cursor:pointer;font-size:.78rem;
+  font-family:'Plus Jakarta Sans',sans-serif;transition:all .2s;
+}
+.back-btn:hover{border-color:var(--accent);color:var(--accent)}
+.store-label{font-weight:700;font-size:.98rem;letter-spacing:-.02em;flex:1}
+.store-label em{color:var(--accent);font-style:normal}
+.topbar-actions{display:flex;gap:.5rem;margin-left:auto}
+
+.filter-bar{
+  padding:.9rem 1.2rem;background:var(--surface);border-bottom:1px solid var(--border);
+  display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;
+}
+.filter-bar select,.filter-bar input{
+  background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius-sm);
+  color:var(--text);padding:.42rem .8rem;font-family:'Plus Jakarta Sans',sans-serif;
+  font-size:.82rem;outline:none;transition:border-color .2s;cursor:pointer;
+}
+.filter-bar select:focus,.filter-bar input:focus{border-color:var(--accent)}
+#searchInput{min-width:180px;flex:1;max-width:300px}
+
+.stats-bar{
+  display:grid;grid-template-columns:repeat(4,1fr);
+  border-bottom:1px solid var(--border);background:var(--surface);
+}
+.stat-box{padding:.8rem 1rem;text-align:center;border-right:1px solid var(--border);position:relative}
+.stat-box:last-child{border-right:none}
+.stat-num{font-size:1.45rem;font-weight:700;font-family:'JetBrains Mono',monospace;letter-spacing:-.02em}
+.stat-lbl{font-size:.65rem;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-top:.1rem}
+.stat-bar-ind{position:absolute;bottom:0;left:0;right:0;height:3px}
+.s-total .stat-num{color:var(--accent)} .s-total .stat-bar-ind{background:var(--accent)}
+.s-disp .stat-num{color:var(--display-color)} .s-disp .stat-bar-ind{background:var(--display-color)}
+.s-nodisp .stat-num{color:var(--nodisp-color)} .s-nodisp .stat-bar-ind{background:var(--nodisp-color)}
+.s-ho .stat-num{color:var(--ho-color)} .s-ho .stat-bar-ind{background:var(--ho-color)}
+
+.view-toggles{
+  display:flex;gap:.45rem;flex-wrap:wrap;padding:.7rem 1.1rem;
+  background:var(--bg);border-bottom:1px solid var(--border);
+}
+.view-toggle{
+  border:1.5px solid var(--border);background:var(--surface);color:var(--text3);
+  border-radius:20px;padding:.3rem .85rem;cursor:pointer;font-size:.76rem;
+  font-family:'Plus Jakarta Sans',sans-serif;font-weight:500;transition:all .2s;
+  display:flex;align-items:center;gap:.38rem;
+}
+.view-toggle .dot{width:7px;height:7px;border-radius:50%;display:inline-block;transition:background .2s}
+.vt-disp.on{border-color:var(--display-color);color:var(--display-color);background:var(--display-bg)}
+.vt-nodisp.on{border-color:var(--nodisp-color);color:var(--nodisp-color);background:var(--nodisp-bg)}
+.vt-ho.on{border-color:var(--ho-color);color:var(--ho-color);background:var(--ho-bg)}
+
+.content{flex:1;padding:1.1rem 1.2rem;display:flex;flex-direction:column;gap:1.25rem}
+
+.section-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+.section-head{padding:.8rem 1.1rem;display:flex;align-items:center;gap:.65rem;border-bottom:1px solid var(--border)}
+.section-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.section-title{font-weight:700;font-size:.88rem}
+.section-count{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:.73rem;color:var(--text2);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:.16rem .6rem}
+.section-disp .section-head{background:var(--display-bg)} .section-disp .section-dot{background:var(--display-color)}
+.section-nodisp .section-head{background:var(--nodisp-bg)} .section-nodisp .section-dot{background:var(--nodisp-color)}
+.section-ho .section-head{background:var(--ho-bg)} .section-ho .section-dot{background:var(--ho-color)}
+
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.79rem}
+thead th{background:var(--surface2);color:var(--text2);font-weight:600;text-transform:uppercase;letter-spacing:.05em;font-size:.65rem;padding:.6rem .9rem;text-align:left;white-space:nowrap;border-bottom:1px solid var(--border)}
+tbody tr{border-top:1px solid var(--border);transition:background .12s}
+tbody tr:hover{background:var(--bg)}
+td{padding:.58rem .9rem;vertical-align:middle;line-height:1.4}
+.td-brand{font-weight:700;white-space:nowrap}
+.td-model{font-family:'JetBrains Mono',monospace;font-size:.74rem;color:var(--accent);white-space:nowrap}
+.td-desc{color:var(--text2);font-size:.76rem;max-width:200px}
+.td-cat{font-size:.71rem;color:var(--text3);white-space:nowrap}
+.td-count{font-family:'JetBrains Mono',monospace;font-weight:600;text-align:center;white-space:nowrap}
+.locs{display:flex;flex-wrap:wrap;gap:.28rem;max-width:220px}
+.loc-tag{background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:.13rem .42rem;font-size:.65rem;color:var(--text2);white-space:nowrap;font-family:'JetBrains Mono',monospace}
+.loc-tag.disp-tag{border-color:var(--display-border);color:var(--display-color);background:var(--display-bg)}
+.loc-tag.ho-tag{border-color:var(--ho-border);color:var(--ho-color);background:var(--ho-bg)}
+.empty-state{text-align:center;padding:2rem;color:var(--text3);font-size:.83rem}
+.empty-state .es-icon{font-size:1.6rem;margin-bottom:.4rem}
+
+/* modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(20,22,40,.45);z-index:500;display:none;align-items:center;justify-content:center;padding:1rem}
+.modal-overlay.open{display:flex}
+.modal{background:var(--surface);border-radius:16px;box-shadow:var(--shadow-md);padding:2rem;max-width:460px;width:100%}
+.modal-title{font-size:1.1rem;font-weight:700;margin-bottom:.4rem}
+.modal-sub{font-size:.82rem;color:var(--text2);margin-bottom:1.5rem;line-height:1.6}
+.modal-actions{display:flex;gap:.65rem;justify-content:flex-end;margin-top:1.25rem;flex-wrap:wrap}
+
+@media(max-width:640px){
+  .stats-bar{grid-template-columns:repeat(2,1fr)}
+  .stat-box:nth-child(2){border-right:none}
+  .stat-box:nth-child(3){border-top:1px solid var(--border)}
+  .filter-bar{flex-direction:column;align-items:stretch}
+  #searchInput{max-width:100%}
+  td,.td-desc,.locs{max-width:none}
+  table{font-size:.72rem}
+  .splash-actions{flex-direction:column;align-items:center;width:100%;max-width:300px}
+}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="screenLoading" class="screen active">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loadingText">Mengambil data terbaru...</div>
+</div>
+
+<!-- SETUP (Admin upload) -->
+<div id="screenSetup" class="screen">
+  <div class="setup-card">
+    <div class="setup-logo">📊</div>
+    <div class="setup-title">VMD <span>Dashboard</span></div>
+    <div class="setup-sub" id="setupSub">Sambungkan ke JSONBin untuk mulai. Cukup dilakukan sekali.</div>
+
+    <!-- Steps -->
+    <div class="steps" id="stepsBar">
+      <div class="step active" id="step1"><div class="step-dot">1</div><div class="step-lbl">API Key</div></div>
+      <div class="step" id="step2"><div class="step-dot">2</div><div class="step-lbl">Upload Excel</div></div>
+      <div class="step" id="step3"><div class="step-dot">3</div><div class="step-lbl">Selesai</div></div>
+    </div>
+
+    <!-- Panel 1: API Key + Bin ID -->
+    <div id="panel1">
+      <div class="field">
+        <label>JSONBin Master Key <span style="color:var(--nodisp-color)">*</span></label>
+        <input type="password" id="inputMasterKey" placeholder="$2a$10$..."/>
+        <div class="hint">
+          Daftar gratis di <a href="https://jsonbin.io" target="_blank">jsonbin.io</a> → Account → Master Key → Copy
+        </div>
+      </div>
+      <div class="field">
+        <label>Bin ID <span style="color:var(--text3)">(kosongkan jika belum punya)</span></label>
+        <input type="text" id="inputBinId" placeholder="66a1b2c3d4e5f6..."/>
+        <div class="hint">Jika kosong, Bin baru akan dibuat otomatis saat upload.</div>
+      </div>
+      <button class="btn btn-primary" id="btnNext1" onclick="goStep2()">Lanjut →</button>
+    </div>
+
+    <!-- Panel 2: Upload Excel -->
+    <div id="panel2" style="display:none">
+      <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+        <div class="uz-icon" id="uzIcon">📂</div>
+        <div class="uz-text" id="uzText">Klik atau drag file Excel di sini</div>
+        <div class="uz-sub" id="uzSub">.xlsx · Data akan disimpan ke cloud</div>
+      </div>
+      <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none"/>
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-lbl" id="progressLbl">Memproses...</div>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      </div>
+      <div class="msg-error" id="msgError"></div>
+      <div style="display:flex;gap:.65rem;margin-top:.85rem">
+        <button class="btn btn-ghost" onclick="goStep1Back()">← Kembali</button>
+        <button class="btn btn-primary" id="btnUpload" onclick="doUpload()" style="flex:1" disabled>Upload & Simpan</button>
+      </div>
+    </div>
+
+    <!-- Panel 3: Done -->
+    <div id="panel3" style="display:none;text-align:center">
+      <div style="font-size:2.5rem;margin-bottom:.75rem">🎉</div>
+      <div style="font-weight:700;font-size:1.05rem;margin-bottom:.4rem">Data berhasil disimpan!</div>
+      <div style="color:var(--text2);font-size:.83rem;margin-bottom:.75rem;line-height:1.6">
+        Semua orang yang membuka link ini akan melihat data yang sama.<br/>
+        Simpan Bin ID di bawah untuk update data berikutnya.
+      </div>
+      <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:.65rem 1rem;font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--accent);margin-bottom:1.25rem;word-break:break-all" id="savedBinId"></div>
+      <button class="btn btn-primary" onclick="openDashboard()">Buka Dashboard →</button>
+    </div>
+  </div>
+</div>
+
+<!-- SPLASH / STORE SELECT -->
+<div id="screenSplash" class="screen">
+  <div class="splash-header">
+    <div class="splash-title">Pilih <span>Toko</span></div>
+    <div class="splash-meta" id="splashMeta"></div>
+  </div>
+  <div class="store-grid" id="storeGrid"></div>
+  <div class="splash-actions">
+    <button class="btn btn-ghost" onclick="showAdminModal()">⚙ Update Data</button>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="screenApp" class="screen">
+  <div class="topbar">
+    <button class="back-btn" onclick="goBack()">← Toko</button>
+    <div class="store-label">Toko: <em id="storeName"></em></div>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost" onclick="showAdminModal()" style="font-size:.75rem;padding:.35rem .75rem">⚙ Update</button>
+    </div>
+  </div>
+  <div class="filter-bar">
+    <input type="text" id="searchInput" placeholder="🔍 Cari brand, model, deskripsi..." oninput="renderAll()"/>
+    <select id="brandFilter" onchange="onFilterChange('brand')"><option value="">Semua Brand</option></select>
+    <select id="catFilter" onchange="onFilterChange('cat')"><option value="">Semua Kategori</option></select>
+  </div>
+  <div class="stats-bar">
+    <div class="stat-box s-total"><div class="stat-num" id="statTotal">0</div><div class="stat-lbl">Total SKU</div><div class="stat-bar-ind"></div></div>
+    <div class="stat-box s-disp"><div class="stat-num" id="statDisp">0</div><div class="stat-lbl">Di Display</div><div class="stat-bar-ind"></div></div>
+    <div class="stat-box s-nodisp"><div class="stat-num" id="statNoDisp">0</div><div class="stat-lbl">Belum Display</div><div class="stat-bar-ind"></div></div>
+    <div class="stat-box s-ho"><div class="stat-num" id="statHO">0</div><div class="stat-lbl">Ada di HO</div><div class="stat-bar-ind"></div></div>
+  </div>
+  <div class="view-toggles">
+    <button class="view-toggle vt-disp on" id="vtDisp" onclick="toggleView('disp')"><span class="dot" style="background:var(--display-color)"></span>Di Display</button>
+    <button class="view-toggle vt-nodisp on" id="vtNoDisp" onclick="toggleView('nodisp')"><span class="dot" style="background:var(--nodisp-color)"></span>Belum Display</button>
+    <button class="view-toggle vt-ho on" id="vtHO" onclick="toggleView('ho')"><span class="dot" style="background:var(--ho-color)"></span>Ada di HO</button>
+  </div>
+  <div class="content">
+    <div class="section-wrap section-disp" id="secDisp">
+      <div class="section-head"><div class="section-dot"></div><div class="section-title">✓ Sudah Di-Display</div><div class="section-count" id="cntDisp">0 SKU</div></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Brand</th><th>Model</th><th>Deskripsi</th><th>Kategori</th><th>Qty Display</th><th>Qty Stock</th><th>Lokasi Display</th><th>Lokasi Stock</th></tr></thead>
+        <tbody id="bodyDisp"></tbody>
+      </table></div>
+    </div>
+    <div class="section-wrap section-nodisp" id="secNoDisp">
+      <div class="section-head"><div class="section-dot"></div><div class="section-title">⚑ Belum Di-Display</div><div class="section-count" id="cntNoDisp">0 SKU</div></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Brand</th><th>Model</th><th>Deskripsi</th><th>Kategori</th><th>Qty Stock</th><th>Lokasi Stock</th></tr></thead>
+        <tbody id="bodyNoDisp"></tbody>
+      </table></div>
+    </div>
+    <div class="section-wrap section-ho" id="secHO">
+      <div class="section-head"><div class="section-dot"></div><div class="section-title">📦 Ada di Head Office — Belum di Toko Ini</div><div class="section-count" id="cntHO">0 SKU</div></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Brand</th><th>Model</th><th>Deskripsi</th><th>Kategori</th><th>Qty di HO</th><th>Lokasi HO</th></tr></thead>
+        <tbody id="bodyHO"></tbody>
+      </table></div>
+    </div>
+  </div>
+</div>
+
+<!-- ADMIN MODAL (update data) -->
+<div class="modal-overlay" id="adminModal">
+  <div class="modal">
+    <div class="modal-title">⚙ Update Data</div>
+    <div class="modal-sub">Upload Excel terbaru untuk memperbarui data semua pengguna.</div>
+    <div class="field">
+      <label>Master Key JSONBin</label>
+      <input type="password" id="modalMasterKey" placeholder="$2a$10$..."/>
+    </div>
+    <div class="field">
+      <label>Bin ID</label>
+      <input type="text" id="modalBinId" placeholder="66a1b2c3..."/>
+      <div class="hint">Sama dengan yang dipakai pertama kali.</div>
+    </div>
+    <div class="upload-zone" id="modalUploadZone" onclick="document.getElementById('modalFileInput').click()" style="padding:1.2rem">
+      <div class="uz-icon" id="modalUzIcon">📂</div>
+      <div class="uz-text" id="modalUzText">Pilih file Excel</div>
+      <div class="uz-sub">.xlsx</div>
+    </div>
+    <input type="file" id="modalFileInput" accept=".xlsx,.xls" style="display:none"/>
+    <div class="progress-wrap" id="modalProgressWrap">
+      <div class="progress-lbl" id="modalProgressLbl">Memproses...</div>
+      <div class="progress-bar"><div class="progress-fill" id="modalProgressFill"></div></div>
+    </div>
+    <div class="msg-error" id="modalMsgError"></div>
+    <div class="msg-success" id="modalMsgSuccess"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeAdminModal()">Batal</button>
+      <button class="btn btn-primary" id="modalBtnUpload" onclick="doModalUpload()" style="width:auto;padding:.5rem 1.3rem" disabled>Upload & Update</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════
+// CONFIG — ubah sesuai setup kamu
+// ════════════════════════════════════════════
+const JSONBIN_BASE = 'https://api.jsonbin.io/v3';
+let CFG = { masterKey: '', binId: '' };  // filled by user
+
+// ════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════
+let DATA = {};
+let currentStore = null;
+let showDisp = true, showNoDisp = true, showHO = true;
+let selectedFile = null, modalSelectedFile = null;
+
+// ════════════════════════════════════════════
+// SCREEN ROUTER
+// ════════════════════════════════════════════
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// ════════════════════════════════════════════
+// INIT — try to load from saved config
+// ════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', async () => {
+  const saved = localStorage.getItem('vmd_cfg');
+  if(saved) {
+    try {
+      CFG = JSON.parse(saved);
+      if(CFG.binId) {
+        await loadFromBin();
+        return;
+      }
+    } catch(e) {}
+  }
+  showScreen('screenSetup');
+});
+
+async function loadFromBin() {
+  showScreen('screenLoading');
+  document.getElementById('loadingText').textContent = 'Mengambil data terbaru...';
+  try {
+    const headers = {};
+    if(CFG.masterKey) headers['X-Master-Key'] = CFG.masterKey;
+    const r = await fetch(`${JSONBIN_BASE}/b/${CFG.binId}/latest`, { headers });
+    if(!r.ok) throw new Error('Bin tidak ditemukan atau key salah ('+r.status+')');
+    const j = await r.json();
+    DATA = j.record;
+    showSplash();
+  } catch(e) {
+    document.getElementById('loadingText').textContent = 'Gagal: ' + e.message;
+    setTimeout(() => showScreen('screenSetup'), 2000);
+  }
+}
+
+// ════════════════════════════════════════════
+// SETUP STEPS
+// ════════════════════════════════════════════
+function goStep2() {
+  const mk = document.getElementById('inputMasterKey').value.trim();
+  const bid = document.getElementById('inputBinId').value.trim();
+  if(!mk) { alert('Master Key wajib diisi.'); return; }
+  CFG.masterKey = mk;
+  CFG.binId = bid;
+  setStep(2);
+  document.getElementById('panel1').style.display = 'none';
+  document.getElementById('panel2').style.display = '';
+}
+function goStep1Back() {
+  setStep(1);
+  document.getElementById('panel2').style.display = 'none';
+  document.getElementById('panel1').style.display = '';
+}
+function setStep(n) {
+  [1,2,3].forEach(i => {
+    const el = document.getElementById('step'+i);
+    el.className = 'step' + (i < n ? ' done' : i === n ? ' active' : '');
+  });
+}
+
+// File pick (setup)
+const uploadZone = document.getElementById('uploadZone');
+const fileInput  = document.getElementById('fileInput');
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => { e.preventDefault(); uploadZone.classList.remove('drag-over'); setFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', e => { if(e.target.files[0]) setFile(e.target.files[0]); });
+
+function setFile(f) {
+  selectedFile = f;
+  document.getElementById('uzIcon').textContent = '📄';
+  document.getElementById('uzText').textContent = f.name;
+  document.getElementById('uzSub').textContent = (f.size/1024).toFixed(0) + ' KB';
+  uploadZone.classList.add('has-file');
+  document.getElementById('btnUpload').disabled = false;
+}
+
+async function doUpload() {
+  if(!selectedFile) return;
+  await uploadExcel(selectedFile, {
+    progressWrap: 'progressWrap', progressFill: 'progressFill',
+    progressLbl: 'progressLbl', msgError: 'msgError',
+    onSuccess: (binId) => {
+      setStep(3);
+      document.getElementById('panel2').style.display = 'none';
+      document.getElementById('panel3').style.display = '';
+      document.getElementById('savedBinId').textContent = 'Bin ID: ' + binId;
+    }
+  });
+}
+
+function openDashboard() {
+  showSplash();
+}
+
+// ════════════════════════════════════════════
+// EXCEL PROCESSING + JSONBIN UPLOAD
+// ════════════════════════════════════════════
+async function uploadExcel(file, ui) {
+  const show = (id, v) => { const el=document.getElementById(id); if(el) el.style.display = v?'':'none'; };
+  const setText = (id, t) => { const el=document.getElementById(id); if(el) el.textContent = t; };
+  const setW = (id, w) => { const el=document.getElementById(id); if(el) el.style.width = w+'%'; };
+
+  show(ui.progressWrap, true);
+  show(ui.msgError, false);
+  setText(ui.progressLbl, 'Membaca file Excel...');
+  setW(ui.progressFill, 15);
+
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+    setText(ui.progressLbl, 'Memproses ' + raw.length + ' baris...');
+    setW(ui.progressFill, 40);
+
+    await new Promise(r => setTimeout(r, 30));
+    const processed = processData(raw);
+
+    setText(ui.progressLbl, 'Menyimpan ke cloud...');
+    setW(ui.progressFill, 70);
+
+    // Upload to JSONBin
+    let binId = CFG.binId;
+    let response;
+
+    if(binId) {
+      // Update existing
+      response = await fetch(`${JSONBIN_BASE}/b/${binId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Master-Key': CFG.masterKey },
+        body: JSON.stringify(processed)
+      });
+    } else {
+      // Create new
+      response = await fetch(`${JSONBIN_BASE}/b`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Master-Key': CFG.masterKey,
+          'X-Bin-Name': 'VMD Dashboard',
+          'X-Bin-Private': 'false'
+        },
+        body: JSON.stringify(processed)
+      });
+    }
+
+    if(!response.ok) {
+      const err = await response.text();
+      throw new Error('JSONBin error (' + response.status + '): ' + err.substring(0,200));
+    }
+
+    const result = await response.json();
+    if(!binId) {
+      binId = result.metadata?.id || result.id;
+      CFG.binId = binId;
+    }
+
+    // Save config to localStorage
+    localStorage.setItem('vmd_cfg', JSON.stringify(CFG));
+    DATA = processed;
+
+    setW(ui.progressFill, 100);
+    setText(ui.progressLbl, 'Selesai!');
+    setTimeout(() => {
+      show(ui.progressWrap, false);
+      if(ui.onSuccess) ui.onSuccess(binId);
+    }, 500);
+
+  } catch(e) {
+    show(ui.progressWrap, false);
+    show(ui.msgError, true);
+    setText(ui.msgError, '❌ ' + e.message);
+  }
+}
+
+function processData(rows) {
+  function col(row, ...names) {
+    for(const n of names) for(const k of Object.keys(row))
+      if(k.trim().toLowerCase() === n.toLowerCase()) return (row[k]||'').toString().trim();
+    return '';
+  }
+  const valid = rows.filter(r => col(r,'status unit').toLowerCase() !== 'not sale');
+  const byStore = {};
+  valid.forEach(r => {
+    const b = col(r,'branch'); if(!b) return;
+    if(!byStore[b]) byStore[b] = [];
+    byStore[b].push(r);
+  });
+  const hoRows = byStore['HEAD OFFICE'] || [];
+  const hoSkuMap = {};
+  hoRows.forEach(r => {
+    const m = col(r,'model'); if(!hoSkuMap[m]) hoSkuMap[m] = [];
+    hoSkuMap[m].push(r);
+  });
+  const result = {};
+  Object.keys(byStore).forEach(branch => {
+    if(branch === 'HEAD OFFICE') return;
+    const byModel = {};
+    byStore[branch].forEach(r => {
+      const m = col(r,'model'); if(!byModel[m]) byModel[m] = [];
+      byModel[m].push(r);
+    });
+    const items = [];
+    Object.keys(byModel).forEach(model => {
+      const grp = byModel[model], f = grp[0];
+      const cat = col(f,'categ2'), subcat = col(f,'subcateg1');
+      const dispRows  = grp.filter(r => col(r,'location name').toUpperCase().includes('DISPLAY'));
+      const stockRows = grp.filter(r => !col(r,'location name').toUpperCase().includes('DISPLAY'));
+      items.push({
+        brand: col(f,'brand'), model, desc: col(f,'itemdesc'),
+        cat, subcat, category: (cat+' '+subcat).trim(),
+        is_displayed: dispRows.length > 0,
+        display_count: dispRows.length, stock_count: stockRows.length,
+        display_locations: [...new Set(dispRows.map(r=>col(r,'location name')).filter(Boolean))],
+        stock_locations:   [...new Set(stockRows.map(r=>col(r,'location name')).filter(Boolean))],
+      });
+    });
+    const storeModels = new Set(Object.keys(byModel));
+    const hoItems = [];
+    Object.keys(hoSkuMap).forEach(model => {
+      if(storeModels.has(model)) return;
+      const grp = hoSkuMap[model], f = grp[0];
+      const cat = col(f,'categ2'), subcat = col(f,'subcateg1');
+      hoItems.push({
+        brand: col(f,'brand'), model, desc: col(f,'itemdesc'),
+        cat, subcat, category: (cat+' '+subcat).trim(),
+        ho_count: grp.length,
+        ho_locations: [...new Set(grp.map(r=>col(r,'location name')).filter(Boolean))],
+      });
+    });
+    result[branch] = { items, ho_items: hoItems, updated: new Date().toISOString() };
+  });
+  return result;
+}
+
+// ════════════════════════════════════════════
+// ADMIN MODAL (update from dashboard)
+// ════════════════════════════════════════════
+function showAdminModal() {
+  // Pre-fill saved values
+  if(CFG.masterKey) document.getElementById('modalMasterKey').value = CFG.masterKey;
+  if(CFG.binId) document.getElementById('modalBinId').value = CFG.binId;
+  document.getElementById('adminModal').classList.add('open');
+}
+function closeAdminModal() {
+  document.getElementById('adminModal').classList.remove('open');
+  document.getElementById('modalMsgError').style.display = 'none';
+  document.getElementById('modalMsgSuccess').style.display = 'none';
+  document.getElementById('modalProgressWrap').style.display = 'none';
+  modalSelectedFile = null;
+  document.getElementById('modalUzIcon').textContent = '📂';
+  document.getElementById('modalUzText').textContent = 'Pilih file Excel';
+  document.getElementById('modalBtnUpload').disabled = true;
+}
+
+const modalZone = document.getElementById('modalUploadZone');
+const modalFI   = document.getElementById('modalFileInput');
+modalZone.addEventListener('dragover', e => { e.preventDefault(); modalZone.classList.add('drag-over'); });
+modalZone.addEventListener('dragleave', () => modalZone.classList.remove('drag-over'));
+modalZone.addEventListener('drop', e => { e.preventDefault(); modalZone.classList.remove('drag-over'); setModalFile(e.dataTransfer.files[0]); });
+modalFI.addEventListener('change', e => { if(e.target.files[0]) setModalFile(e.target.files[0]); });
+
+function setModalFile(f) {
+  modalSelectedFile = f;
+  document.getElementById('modalUzIcon').textContent = '📄';
+  document.getElementById('modalUzText').textContent = f.name;
+  modalZone.classList.add('has-file');
+  document.getElementById('modalBtnUpload').disabled = false;
+}
+
+async function doModalUpload() {
+  if(!modalSelectedFile) return;
+  CFG.masterKey = document.getElementById('modalMasterKey').value.trim();
+  CFG.binId     = document.getElementById('modalBinId').value.trim();
+  await uploadExcel(modalSelectedFile, {
+    progressWrap: 'modalProgressWrap', progressFill: 'modalProgressFill',
+    progressLbl: 'modalProgressLbl', msgError: 'modalMsgError',
+    onSuccess: () => {
+      document.getElementById('modalMsgSuccess').style.display = '';
+      document.getElementById('modalMsgSuccess').textContent = '✅ Data berhasil diperbarui! Semua pengguna akan melihat data baru saat refresh.';
+      setTimeout(() => { closeAdminModal(); showSplash(); }, 2500);
+    }
+  });
+}
+
+// ════════════════════════════════════════════
+// SPLASH
+// ════════════════════════════════════════════
+function showSplash() {
+  const grid = document.getElementById('storeGrid');
+  grid.innerHTML = '';
+  const stores = Object.keys(DATA).sort();
+  stores.forEach(store => {
+    const d = DATA[store];
+    const dispN   = d.items.filter(i=>i.is_displayed).length;
+    const nodispN = d.items.filter(i=>!i.is_displayed).length;
+    const btn = document.createElement('button');
+    btn.className = 'store-btn';
+    btn.innerHTML = `<div class="store-btn-name">${store}</div>
+      <div class="store-pills">
+        <span class="store-pill pill-disp">${dispN} display</span>
+        <span class="store-pill pill-nodisp">${nodispN} belum</span>
+        <span class="store-pill pill-ho">${d.ho_items.length} HO</span>
+      </div>`;
+    btn.onclick = () => loadStore(store);
+    grid.appendChild(btn);
+  });
+  // Show last updated
+  const anyUpdated = DATA[stores[0]]?.updated;
+  if(anyUpdated) {
+    const dt = new Date(anyUpdated);
+    document.getElementById('splashMeta').textContent =
+      'Data per: ' + dt.toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  }
+  showScreen('screenSplash');
+}
+
+// ════════════════════════════════════════════
+// STORE / FILTERS / RENDER
+// ════════════════════════════════════════════
+function loadStore(store) {
+  currentStore = store;
+  document.getElementById('storeName').textContent = store;
+  showDisp = true; showNoDisp = true; showHO = true;
+  updateToggleBtns();
+  document.getElementById('searchInput').value = '';
+  buildFilters();
+  renderAll();
+  showScreen('screenApp');
+}
+function goBack() { showScreen('screenSplash'); currentStore = null; }
+
+function buildFilters() { rebuildSelects(null, null, null); }
+function onFilterChange(changed) {
+  rebuildSelects(document.getElementById('brandFilter').value, document.getElementById('catFilter').value, changed);
+  renderAll();
+}
+function rebuildSelects(brandF, catF, changed) {
+  if(!currentStore) return;
+  const all = [...DATA[currentStore].items, ...DATA[currentStore].ho_items];
+  const brandsAvail = [...new Set(all.filter(i => (!catF || i.cat===catF) && i.brand).map(i=>i.brand))].sort();
+  const catsAvail   = [...new Set(all.filter(i => (!brandF || i.brand===brandF) && i.cat && i.cat!=='-' && i.cat!=='0').map(i=>i.cat))].sort();
+
+  if(changed !== 'brand') {
+    const bd = document.getElementById('brandFilter');
+    const prev = bd.value;
+    bd.innerHTML = '<option value="">Semua Brand</option>';
+    brandsAvail.forEach(b => { const o=document.createElement('option'); o.value=b; o.textContent=b; if(b===prev)o.selected=true; bd.appendChild(o); });
+    if(prev && !brandsAvail.includes(prev)) bd.value='';
+  }
+  if(changed !== 'cat') {
+    const ct = document.getElementById('catFilter');
+    const prev = ct.value;
+    ct.innerHTML = '<option value="">Semua Kategori</option>';
+    catsAvail.forEach(c => { const o=document.createElement('option'); o.value=c; o.textContent=c; if(c===prev)o.selected=true; ct.appendChild(o); });
+    if(prev && !catsAvail.includes(prev)) ct.value='';
+  }
+}
+
+function toggleView(t) {
+  if(t==='disp')showDisp=!showDisp; if(t==='nodisp')showNoDisp=!showNoDisp; if(t==='ho')showHO=!showHO;
+  updateToggleBtns(); renderAll();
+}
+function updateToggleBtns() {
+  document.getElementById('vtDisp').className   = 'view-toggle vt-disp'  +(showDisp  ?' on':'');
+  document.getElementById('vtNoDisp').className = 'view-toggle vt-nodisp'+(showNoDisp?' on':'');
+  document.getElementById('vtHO').className     = 'view-toggle vt-ho'    +(showHO    ?' on':'');
+}
+
+function locsHtml(locs, cls) {
+  if(!locs||!locs.length) return '<span style="color:var(--text3)">—</span>';
+  return '<div class="locs">'+locs.map(l=>`<span class="loc-tag ${cls}">${l}</span>`).join('')+'</div>';
+}
+function filterItems(items) {
+  const s = document.getElementById('searchInput').value.toLowerCase().trim();
+  const b = document.getElementById('brandFilter').value;
+  const c = document.getElementById('catFilter').value;
+  return items.filter(i =>
+    (!b||i.brand===b) && (!c||i.cat===c) &&
+    (!s||(i.brand+i.model+i.desc).toLowerCase().includes(s))
+  );
+}
+
+function renderAll() {
+  if(!currentStore) return;
+  const d = DATA[currentStore];
+  const fi = filterItems(d.items);
+  const fh = filterItems(d.ho_items);
+  const disp  = fi.filter(i=>i.is_displayed);
+  const nodisp= fi.filter(i=>!i.is_displayed);
+
+  document.getElementById('statTotal').textContent  = fi.length;
+  document.getElementById('statDisp').textContent   = disp.length;
+  document.getElementById('statNoDisp').textContent = nodisp.length;
+  document.getElementById('statHO').textContent     = fh.length;
+
+  const render = (tbodyId, secId, cntId, rows, cols) => {
+    document.getElementById(secId).style.display = (secId==='secDisp'?showDisp:secId==='secNoDisp'?showNoDisp:showHO) ? '' : 'none';
+    document.getElementById(cntId).textContent = rows.length + ' SKU';
+    const b = document.getElementById(tbodyId);
+    if(!rows.length) { b.innerHTML=`<tr><td colspan="${cols}"><div class="empty-state"><div class="es-icon">${secId==='secHO'?'✅':'🔍'}</div>${secId==='secHO'?'Semua item HO sudah ada di toko ini':'Tidak ada item'}</div></td></tr>`; return; }
+    b.innerHTML = rows.map(i => secId==='secDisp' ? `<tr>
+      <td class="td-brand">${i.brand}</td><td class="td-model">${i.model}</td>
+      <td class="td-desc">${i.desc}</td><td class="td-cat">${i.category}</td>
+      <td class="td-count" style="color:var(--display-color)">${i.display_count}</td>
+      <td class="td-count" style="color:var(--text2)">${i.stock_count||'—'}</td>
+      <td>${locsHtml(i.display_locations,'disp-tag')}</td><td>${locsHtml(i.stock_locations,'')}</td>
+    </tr>` : secId==='secNoDisp' ? `<tr>
+      <td class="td-brand">${i.brand}</td><td class="td-model">${i.model}</td>
+      <td class="td-desc">${i.desc}</td><td class="td-cat">${i.category}</td>
+      <td class="td-count" style="color:var(--text2)">${i.stock_count}</td>
+      <td>${locsHtml(i.stock_locations,'')}</td>
+    </tr>` : `<tr>
+      <td class="td-brand">${i.brand}</td><td class="td-model">${i.model}</td>
+      <td class="td-desc">${i.desc}</td><td class="td-cat">${i.category}</td>
+      <td class="td-count" style="color:var(--ho-color)">${i.ho_count}</td>
+      <td>${locsHtml(i.ho_locations,'ho-tag')}</td>
+    </tr>`).join('');
+  };
+
+  render('bodyDisp',   'secDisp',   'cntDisp',   disp,   8);
+  render('bodyNoDisp', 'secNoDisp', 'cntNoDisp', nodisp, 6);
+  render('bodyHO',     'secHO',     'cntHO',     fh,     6);
+}
+</script>
+</body>
+</html>
